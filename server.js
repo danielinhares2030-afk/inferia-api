@@ -5,19 +5,15 @@ require('dotenv').config();
 
 const app = express();
 
-// Configuração de segurança e CORS (Permite que o Painel e o Site acessem a API)
 app.use(cors({
-  origin: '*', // Em produção, você pode colocar os links da Vercel do seu site e do admin aqui
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
 
-// ==========================================
-// 1. CONEXÃO COM O BANCO DE DADOS (MongoDB)
-// ==========================================
-// A Vercel vai ler a sua string de conexão das Variáveis de Ambiente (Environment Variables)
+// 1. CONEXÃO COM O BANCO DE DADOS
 const MONGO_URI = process.env.MONGO_URI;
 
 if (!MONGO_URI) {
@@ -28,10 +24,7 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log('🔥 Conectado ao Abismo (MongoDB) com sucesso!'))
   .catch((err) => console.error('❌ Erro ao conectar no MongoDB:', err));
 
-// ==========================================
 // 2. MODELOS REAIS DO BANCO DE DADOS
-// ==========================================
-
 const obraSchema = new mongoose.Schema({
   nome: { type: String, required: true },
   descricao: { type: String, default: 'Sem descrição disponível.' },
@@ -54,26 +47,18 @@ const capituloSchema = new mongoose.Schema({
   numero: { type: Number, required: true },
   titulo: { type: String, default: '' },
   volume: { type: String, default: '' },
-  paginas: [{ type: String, required: true }], // Array com os links das imagens (Cloudinary)
+  arquivoUrl: { type: String, required: true }, // <-- ATUALIZADO: Agora recebe o link do ZIP
 }, { timestamps: true });
 
-// Índice para otimizar a busca de capítulos por obra
 capituloSchema.index({ obraId: 1, numero: -1 });
 
 const Capitulo = mongoose.models.Capitulo || mongoose.model('Capitulo', capituloSchema);
 
-// ==========================================
 // 3. ROTAS DA API
-// ==========================================
-
-// Rota de Teste para ver se a API está online
 app.get('/api', (req, res) => {
-  res.status(200).json({ status: 'online', message: 'API Manga Inferia está rodando 100%.' });
+  res.status(200).json({ status: 'online', message: 'API Manga Inferia está rodando 100% com suporte a arquivos ZIP.' });
 });
 
-// --- OBRAS ---
-
-// Buscar todo o catálogo
 app.get('/api/obras', async (req, res) => {
   try {
     const obras = await Obra.find().sort({ createdAt: -1 });
@@ -83,7 +68,6 @@ app.get('/api/obras', async (req, res) => {
   }
 });
 
-// Criar nova obra (Painel Admin)
 app.post('/api/obras', async (req, res) => {
   try {
     const novaObra = new Obra(req.body);
@@ -94,15 +78,12 @@ app.post('/api/obras', async (req, res) => {
   }
 });
 
-// Deletar obra e todos os seus capítulos em cascata (Painel Admin)
 app.delete('/api/obras/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const obra = await Obra.findById(id);
-    
     if (!obra) return res.status(404).json({ error: 'Obra não encontrada.' });
 
-    // Exclusão real e em cascata
     await Capitulo.deleteMany({ obraId: id });
     await Obra.findByIdAndDelete(id);
 
@@ -112,9 +93,6 @@ app.delete('/api/obras/:id', async (req, res) => {
   }
 });
 
-// --- CAPÍTULOS ---
-
-// Buscar capítulos de uma obra específica
 app.get('/api/obras/:id/capitulos', async (req, res) => {
   try {
     const capitulos = await Capitulo.find({ obraId: req.params.id }).sort({ numero: -1 });
@@ -124,49 +102,34 @@ app.get('/api/obras/:id/capitulos', async (req, res) => {
   }
 });
 
-// Adicionar novo capítulo
 app.post('/api/capitulos', async (req, res) => {
   try {
     const novoCapitulo = new Capitulo(req.body);
     await novoCapitulo.save();
 
-    // Atualiza a obra para indicar qual é o último capítulo adicionado
     await Obra.findByIdAndUpdate(req.body.obraId, { cap: `Cap. ${req.body.numero}` });
 
-    res.status(201).json({ message: 'Capítulo forjado!', capitulo: novoCapitulo });
+    res.status(201).json({ message: 'Capítulo forjado em ZIP!', capitulo: novoCapitulo });
   } catch (error) {
     res.status(500).json({ error: 'Erro ao salvar capítulo.', detalhes: error.message });
   }
 });
 
-// --- ESTATÍSTICAS REAIS (DASHBOARD) ---
 app.get('/api/estatisticas', async (req, res) => {
   try {
     const totalObras = await Obra.countDocuments();
     const totalCapitulos = await Capitulo.countDocuments();
-    
-    // Como a contagem de views exige um sistema robusto de tracking no frontend, 
-    // os totais de itens do banco são as estatísticas reais entregues aqui.
-    res.status(200).json({
-      totalObras,
-      totalCapitulos,
-      status: 'Ativo'
-    });
+    res.status(200).json({ totalObras, totalCapitulos, status: 'Ativo' });
   } catch (error) {
     res.status(500).json({ error: 'Erro ao carregar estatísticas.', detalhes: error.message });
   }
 });
 
-// ==========================================
 // 4. EXPORTAÇÃO PARA A VERCEL
-// ==========================================
 const PORT = process.env.PORT || 5000;
-
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
-    console.log(`🚀 Servidor de Desenvolvimento rodando na porta ${PORT}`);
+    console.log(`🚀 Servidor rodando na porta ${PORT}`);
   });
 }
-
-// Exportar o app é obrigatório para a arquitetura Serverless da Vercel funcionar
 module.exports = app;
